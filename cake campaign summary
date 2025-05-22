@@ -1,0 +1,104 @@
+import requests
+import base64
+import json
+import pandas as pd
+from datetime import datetime, timedelta
+import time
+import domojupyter as domo
+
+# Function to encode the client key and secret to Base64 (for Rakuten)
+def encode_base64(client_key, client_secret):
+    credentials = f"{client_key}:{client_secret}"
+    encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+    return encoded_credentials
+
+# Function to build URL parameters (for Rakuten)
+def build_params(params):
+    query_string = '&'.join(f"{key}={requests.utils.quote(value)}" for key, value in params.items())
+    return query_string
+
+def get_cake_campaign_summary():
+    print("Started get_cake_campaign_summary.")
+    # Initialize an empty DataFrame to store Cake data
+    df_cake = pd.DataFrame()
+  
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=1)  # 30 days before yesterday
+
+    for delta in range(7):
+        # Reset the current date each time (important for Cake API)
+        current_date = end_date - timedelta(days=delta)
+        current_date_string = current_date.strftime('%Y-%m-%d')
+
+        # Calculate the next day (to use as end_date)
+        next_day = current_date + timedelta(days=1)
+        next_day_string = next_day.strftime('%Y-%m-%d')
+
+        # API request parameters for Cake
+        platforms = [
+            ('Cake - BrandX', 'tRN2zw2xOwkLbU88jpaYoA', 573, 'https://track.brandxads.com/affiliates/api/Reports/CampaignSummary'),
+            ('Cake - Consumer Rating', 'gJJNQYtnXjJXi9Fw9ZGAxA', 3, 'https://crwebtracking.com/affiliates/api/Reports/CampaignSummary'),
+            ('Cake - Thinx', 'Vv8iFZRBFUE7gsWw8SVCQ', 9, 'https://login.thinxmg.com/affiliates/api/Reports/CampaignSummary'),
+            ('Cake - Dog Food Rankings', 'APbqDVRqAgRggstUiLlA', 621, 'https://track.brandxads.com/affiliates/api/Reports/CampaignSummary'),
+            ('Cake - Mattress Authority', 'ePNef0Asv0Nxxy5EcJw', 616, 'https://track.brandxads.com/affiliates/api/Reports/CampaignSummary'),
+            ('Cake - Top Weight Loss', 'XA1okf0lh5js7Ii0DEoniw', 619, 'https://track.brandxads.com/affiliates/api/Reports/CampaignSummary')
+        ]
+
+        # Loop through the platforms and make the API calls for Cake
+        for platform_name, api_key, affiliate_id, url in platforms:
+            params = {
+                'api_key': api_key,
+                'row_limit': 0,
+                'affiliate_id': affiliate_id,
+                'start_date': current_date_string,
+                'end_date': next_day_string  # Use the next day's date as the end_date
+            }
+
+            # Make the GET request to Cake
+            response = requests.get(url, params=params)
+            
+            if response.status_code == 200:
+                data = response.json().get('data', [])
+                
+                # Temporary list to collect rows of data for Cake
+                platform_rows = []
+
+                # Iterate over the data and format it into rows
+                for details in data:
+                    row = {
+                        'platform': platform_name,
+                        'date': current_date_string,
+                        'report': 'campaign summary'
+                    }
+
+                    # For each key-value pair in the details, add them to the row
+                    for key, value in details.items():
+                        row[key] = value  # Dynamically add column names based on the keys
+
+                    # Append the row to the list
+                    platform_rows.append(row)
+
+                # Convert the list of rows into a DataFrame and concatenate with the main DataFrame
+                platform_df = pd.DataFrame(platform_rows)
+                
+                df_cake = pd.concat([df_cake, platform_df], ignore_index=True)
+            else:
+                print(f"Error: Received status code {response.status_code} from {platform_name}")
+                print(response)
+                
+            # Add sleep function of 1 second between each request
+            time.sleep(10)
+    
+    print("Finished get_cake_campaign_summary.")
+    return df_cake
+
+
+cake_campaign_summary = get_cake_campaign_summary()
+
+display(cake_campaign_summary)
+
+try:
+    domo.write_dataframe(cake_campaign_summary, 'PROD_JUP_CAKE_CAMPAIGN SUMMARY')
+    print("Combined data successfully written to Domo.")
+except Exception as e:
+    print(f"Error writing combined data to Domo: {e}")
