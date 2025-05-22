@@ -1,0 +1,120 @@
+import requests
+import base64
+import json
+import pandas as pd
+from datetime import datetime, timedelta
+import time
+import domojupyter as domo
+
+# Function to encode the client key and secret to Base64 (for Rakuten)
+def encode_base64(client_key, client_secret):
+    credentials = f"{client_key}:{client_secret}"
+    encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+    return encoded_credentials
+
+# Function to build URL parameters (for Rakuten)
+def build_params(params):
+    query_string = '&'.join(f"{key}={requests.utils.quote(value)}" for key, value in params.items())
+    return query_string
+
+# Ascend API for transaction details
+def get_ascend_transaction_details():
+    print("Started get_ascend_transaction_details.")
+    # Initialize an empty DataFrame to store the transaction details
+    df_transaction_details = pd.DataFrame()
+
+    # Set date range for the past 180 days
+    end_date = datetime.now() - timedelta(days=1)  # Yesterday
+    start_date = end_date - timedelta(days=180)  # 30 days before yesterday
+
+    # Format the dates as 'YYYY-MM-DD'
+    end_date_string = end_date.strftime('%Y-%m-%d')
+    start_date_string = start_date.strftime('%Y-%m-%d')
+
+    # Make the GET request to Pepperjam API for transaction details
+    url = 'https://api.pepperjamnetwork.com/20120402/publisher/report/transaction-details'
+    params = {
+        'apiKey': 'f83153f6341a6e348a134d4a93f00429238ec0a63e3b1c14714a843fd1b601f8',  # Replace with your actual API key
+        'format': 'json',
+        'startDate': start_date_string,
+        'endDate': end_date_string
+    }
+    
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        accounts_data = response.json().get('data', [])
+
+        # Create rows with the 'Platform' column as 'Ascend'
+        for account_details in accounts_data:
+            account_details['platform'] = 'Ascend'
+            account_details['report'] = 'Details'
+            # Concatenate the new row to the DataFrame
+            
+            df_transaction_details = pd.concat([df_transaction_details, pd.json_normalize(account_details)], ignore_index=True)
+
+    else:
+        print(f"Failed to retrieve transaction details. Status code: {response.status_code}")
+
+    print("Finished get_ascend_transaction_details.")
+    return df_transaction_details
+
+# Ascend API for transaction summary
+def get_ascend_transaction_summary():
+    print("Started get_ascend_transaction_summary.")
+    # Initialize an empty DataFrame to store the transaction summary
+    df_transaction_summary = pd.DataFrame()
+
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=1)
+
+    # Format the dates as 'YYYY-MM-DD'
+    end_date_string = end_date.strftime('%Y-%m-%d')
+    start_date_string = start_date.strftime('%Y-%m-%d')
+    
+    for delta in range(55):
+        # Make the GET request to Ascend API for transaction summary
+        url = 'https://api.pepperjamnetwork.com/20120402/publisher/report/transaction-summary'
+        params = {
+            'apiKey': 'f83153f6341a6e348a134d4a93f00429238ec0a63e3b1c14714a843fd1b601f8',  # Replace with your actual API key
+            'format': 'json',
+            'startDate': start_date_string,
+            'endDate': start_date_string
+        }
+
+        response = requests.get(url, params=params)
+
+        if response.status_code == 200:
+            summary_data = response.json().get('data', [])
+
+            # Create rows with the 'Platform' column as 'Ascend'
+            for account_summary in summary_data:
+                account_summary['platform'] = 'Ascend'
+                account_summary['report'] = 'Summary'
+                account_summary['date'] = start_date_string
+                df_transaction_summary = pd.concat([df_transaction_summary, pd.json_normalize(account_summary)], ignore_index=True)
+        else:
+            print(f"Failed to retrieve transaction summary. Status code: {response.status_code}")
+        
+        end_date = end_date - timedelta(days=1)
+        start_date = start_date - timedelta(days=1)
+
+        # Format the dates as 'YYYY-MM-DD'
+        end_date_string = end_date.strftime('%Y-%m-%d')
+        start_date_string = start_date.strftime('%Y-%m-%d')
+
+    print("Finished get_ascend_transaction_summary.")
+    return df_transaction_summary
+
+# Now you can call the functions you need to execute
+ascend_transaction_details = get_ascend_transaction_details()
+ascend_transaction_summary = get_ascend_transaction_summary()
+
+# Combine all data into one DataFrame
+final_data = pd.concat([ascend_transaction_details, ascend_transaction_summary], ignore_index=True)
+
+try:
+    domo.write_dataframe(final_data, 'PROD_JUP_CR_ASCEND')
+    print("Combined data successfully written to Domo.")
+except Exception as e:
+    print(f"Error writing combined data to Domo: {e}")
